@@ -15,11 +15,15 @@ public:
 
   void expm(double t) { expm_ss(t); }
 
-  void set_matrix(const thrust::host_vector<double> &a) { _A_host = a; }
+  void set_matrix(const thrust::host_vector<double> &a) {
+    if (a.size() != _matrix_size) {
+      throw std::runtime_error{"matrix is the incorrect size"};
+    }
+    _A_host = a;
+  }
 
 private:
   void expm_ss(double t);
-
 
   void init_cublas();
   void init_cublaslt();

@@ -29,6 +29,29 @@ inline void checkCuSolverStatus(cusolverStatus_t status) {
   }
 }
 
+inline void print_matrix(const thrust::host_vector<double> &a,
+                         size_t row_size) {
+  std::cout << "[ ";
+  for (size_t i = 0; i < row_size; i++) {
+    if (i != 0) {
+      std::cout << " ";
+    }
+    for (size_t j = 0; j < row_size; j++) {
+      std::cout << a[i * row_size + j];
+      if (j != row_size - 1) {
+        std::cout << " ";
+      } else {
+        if (i == row_size - 1) {
+          std::cout << "]";
+        }
+        std::cout << "\n";
+      }
+    }
+  }
+  std::cout << "\n";
+}
+
+
 template <typename T>
 struct identity_matrix_functor : public thrust::unary_function<T, T> {
   const size_t _row_size;
@@ -164,7 +187,9 @@ void CudaRateMatrix::init_cusolver() {
       _solve_handle, _row_size, _row_size,
       thrust::raw_pointer_cast(_D_dev.data()), _row_size, &required_work_size));
   if (required_work_size > _workspace_size) {
-    throw std::runtime_error{"Workspace is too small for cuSolver"};
+    _workspace_size = required_work_size;
+    thrust::device_free(_workspace);
+    _workspace = thrust::device_malloc<uint8_t>(_workspace_size);
   }
 }
 
@@ -217,7 +242,7 @@ void CudaRateMatrix::expm_ss(double t) {
 
   set_identity(_eA_dev);
 
-  /* eA = D^-1 */
+  /* factorize D */
   checkCuSolverStatus(
       cusolverDnDgetrf(_solve_handle, _row_size, _row_size,
                        thrust::raw_pointer_cast(_D_dev.data()), _row_size,
@@ -228,40 +253,30 @@ void CudaRateMatrix::expm_ss(double t) {
   if (*_info != 0) {
     throw std::runtime_error{"LU factorization was unsuccsessful"};
   }
+
+  /*Solve D * A = N */
   checkCuSolverStatus(
       cusolverDnDgetrs(_solve_handle, CUBLAS_OP_N, _row_size, _row_size,
                        thrust::raw_pointer_cast(_D_dev.data()), _row_size,
                        thrust::raw_pointer_cast(_P_dev.data()),
-                       thrust::raw_pointer_cast(_eA_dev.data()), _row_size,
+                       thrust::raw_pointer_cast(_N_dev.data()), _row_size,
                        thrust::raw_pointer_cast(_info)));
 
   if (*_info != 0) {
     throw std::runtime_error{"LU factorization was unsuccsessful"};
   }
 
-  /* eA = eA * N */
-  checkCublasStatus(cublasLtMatmul(
-      _lthandle, _operation, &alpha, thrust::raw_pointer_cast(_eA_dev.data()),
-      _layout, thrust::raw_pointer_cast(_N_dev.data()), _layout, &beta,
-      thrust::raw_pointer_cast(_eA_dev.data()), _layout,
-      thrust::raw_pointer_cast(_eA_dev.data()), _layout, &_heuristics.algo,
-      thrust::raw_pointer_cast(_workspace), _workspace_size, 0));
-
   for (int i = 0; i < scale; i++) {
-    /* eA *= eA */
+    /* N *= N */
     checkCublasStatus(cublasLtMatmul(
-        _lthandle, _operation, &alpha, thrust::raw_pointer_cast(_eA_dev.data()),
-        _layout, thrust::raw_pointer_cast(_eA_dev.data()), _layout, &beta,
-        thrust::raw_pointer_cast(_eA_dev.data()), _layout,
-        thrust::raw_pointer_cast(_eA_dev.data()), _layout, &_heuristics.algo,
+        _lthandle, _operation, &alpha, thrust::raw_pointer_cast(_N_dev.data()),
+        _layout, thrust::raw_pointer_cast(_N_dev.data()), _layout, &beta,
+        thrust::raw_pointer_cast(_N_dev.data()), _layout,
+        thrust::raw_pointer_cast(_N_dev.data()), _layout, &_heuristics.algo,
         thrust::raw_pointer_cast(_workspace), _workspace_size, 0));
   }
-  _eA_host = _eA_dev;
+  _eA_host = _N_dev;
 
   std::cout << "eA dev: " << std::endl;
-  std::cout << _eA_dev[0] << " " << _eA_dev[1] << std::endl
-            << _eA_dev[2] << " " << _eA_dev[3] << std::endl;
-  std::cout << "eA host: " << std::endl;
-  std::cout << _eA_host[0] << " " << _eA_host[1] << std::endl
-            << _eA_host[2] << " " << _eA_host[3] << std::endl;
+  print_matrix(_eA_host, _row_size);
 }

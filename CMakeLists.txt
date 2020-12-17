@@ -25,4 +25,5 @@ set_property(TARGET cuEXPM-dummy PROPERTY CUDA_ARCHITECTURES 52)
 
 target_link_libraries(cuEXPM-lib ${CUEXPM_LIBS})
 
+target_compile_options(cuEXPM-dummy PRIVATE -g --extended-lambda)
 target_link_libraries(cuEXPM-dummy cuEXPM-lib)
