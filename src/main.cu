@@ -2,7 +2,7 @@
 #include <limits>
 
 int main() {
-  constexpr size_t n = 1 << 4;
+  constexpr size_t n = 1 << 6;
   CudaRateMatrix rm(n);
   thrust::host_vector<double> a(n * n);
 
